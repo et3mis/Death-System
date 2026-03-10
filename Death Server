@@ -1,0 +1,196 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local REMOTE_NAME = "DeathFX_Remote"
+local DEATH_ANIM_ID = "rbxassetid://YOUR ID"
+
+local HOLD_POSE_FOREVER = true -- set false if you want it to release later
+local RELEASE_AFTER = 8 -- only used if HOLD_POSE_FOREVER = false
+
+local remote = ReplicatedStorage:FindFirstChild(REMOTE_NAME)
+if not remote then
+	remote = Instance.new("RemoteEvent")
+	remote.Name = REMOTE_NAME
+	remote.Parent = ReplicatedStorage
+end
+
+local function zeroVel(char)
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.AssemblyLinearVelocity = Vector3.zero
+			d.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+end
+
+local function disableAnimate(char)
+	local a = char:FindFirstChild("Animate")
+	if a then
+		pcall(function() a.Disabled = true end)
+	end
+end
+
+local function hardFreezeHumanoid(hum)
+	pcall(function() hum.AutoRotate = false end)
+	pcall(function() hum.WalkSpeed = 0 end)
+	pcall(function() hum.JumpPower = 0 end)
+	pcall(function() hum.PlatformStand = true end)
+
+	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false) end)
+	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Running, false) end)
+	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false) end)
+	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, false) end)
+	pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false) end)
+
+	pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+end
+
+local function anchorRoot(char)
+	local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+	if not (root and root:IsA("BasePart")) then return nil end
+
+	zeroVel(char)
+	pcall(function() root:SetNetworkOwner(nil) end)
+	root.Anchored = true
+
+	if not HOLD_POSE_FOREVER then
+		task.delay(RELEASE_AFTER, function()
+			if root.Parent then
+				root.Anchored = false
+			end
+		end)
+	end
+
+	return root
+end
+
+local function getAnimator(hum)
+	local animator = hum:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = hum
+	end
+	return animator
+end
+
+local function waitTrackLength(track)
+	for _ = 1, 20 do
+		local len = track.Length
+		if len and len > 0 then return len end
+		task.wait(0.05)
+	end
+	return track.Length
+end
+
+local function freezeOnLastFrame(animator, track)
+	local len = waitTrackLength(track)
+	if not (len and len > 0) then
+		task.delay(2, function()
+			if track then pcall(function() track:AdjustSpeed(0) end) end
+		end)
+		return
+	end
+
+	task.delay(math.max(len - 0.06, 0.08), function()
+		if not track then return end
+		pcall(function()
+			track.TimePosition = math.max(len - 0.03, 0)
+			track:AdjustSpeed(0)
+		end)
+	end)
+
+	track.Stopped:Connect(function()
+		if not animator.Parent then return end
+		local hum = animator.Parent
+		if not hum:IsA("Humanoid") then return end
+		if hum.Health > 0 then return end
+
+		local anim = Instance.new("Animation")
+		anim.AnimationId = DEATH_ANIM_ID
+
+		local ok, newTrack = pcall(function()
+			return animator:LoadAnimation(anim)
+		end)
+		if ok and newTrack then
+			newTrack.Priority = Enum.AnimationPriority.Action
+			newTrack.Looped = false
+			newTrack:Play(0, 1, 1)
+
+			local l2 = waitTrackLength(newTrack)
+			pcall(function()
+				if l2 and l2 > 0 then
+					newTrack.TimePosition = math.max(l2 - 0.03, 0)
+				end
+				newTrack:AdjustSpeed(0)
+			end)
+		end
+	end)
+end
+
+local function playDeathAnim(hum)
+	local animator = getAnimator(hum)
+
+	-- stop anything else that could blend in
+	for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+		pcall(function() t:Stop(0) end)
+	end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = DEATH_ANIM_ID
+
+	local track
+	local ok, err = pcall(function()
+		track = animator:LoadAnimation(anim)
+	end)
+	if not ok or not track then
+		warn("DeathFX: animation failed to load. Error:", err)
+		return
+	end
+
+	track.Priority = Enum.AnimationPriority.Action
+	track.Looped = false
+	track:Play(0.05, 1, 1)
+
+	freezeOnLastFrame(animator, track)
+end
+
+local function onCharacter(plr, char)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if not hum then return end
+
+	hum.BreakJointsOnDeath = false
+
+	local fired = false
+	local function runDeath()
+		if fired then return end
+		fired = true
+
+		disableAnimate(char)
+		hardFreezeHumanoid(hum)
+		anchorRoot(char)
+
+		-- extra stabilization right at death
+		for _ = 1, 10 do
+			if not char.Parent then break end
+			zeroVel(char)
+			task.wait(0.05)
+		end
+
+		playDeathAnim(hum)
+		remote:FireClient(plr, "PLAY_SOUND")
+	end
+
+	hum.HealthChanged:Connect(function(h)
+		if h <= 0 then runDeath() end
+	end)
+	hum.Died:Connect(runDeath)
+end
+
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function(char)
+		onCharacter(plr, char)
+	end)
+	if plr.Character then
+		onCharacter(plr, plr.Character)
+	end
+end)
