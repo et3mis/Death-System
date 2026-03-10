@@ -1,0 +1,205 @@
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+
+local DEATH_SOUND_ID = "rbxassetid://YOUR ID"
+
+local DEFAULT_VOLUME = 0.6
+local DEFAULT_ENABLED = true
+local OPEN_KEY = Enum.KeyCode.V
+local REMOTE_NAME = "DeathFX_Remote"
+
+local settings = { volume = DEFAULT_VOLUME, enabled = DEFAULT_ENABLED }
+local dragging = false
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "DeathFX_UI"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.fromOffset(300, 170)
+panel.Position = UDim2.new(0, 20, 0.5, -85)
+panel.BackgroundColor3 = Color3.fromRGB(16, 16, 16)
+panel.BackgroundTransparency = 1
+panel.Visible = false
+panel.Parent = gui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 16)
+local panelStroke = Instance.new("UIStroke", panel)
+panelStroke.Thickness = 1
+panelStroke.Transparency = 1
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -24, 0, 28)
+title.Position = UDim2.fromOffset(12, 10)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Death FX"
+title.TextSize = 20
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Parent = panel
+
+local sub = Instance.new("TextLabel")
+sub.BackgroundTransparency = 1
+sub.Size = UDim2.new(1, -24, 0, 18)
+sub.Position = UDim2.fromOffset(12, 36)
+sub.TextXAlignment = Enum.TextXAlignment.Left
+sub.Text = "Press V to open/close"
+sub.TextSize = 12
+sub.Font = Enum.Font.Gotham
+sub.TextColor3 = Color3.fromRGB(180, 180, 180)
+sub.Parent = panel
+
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.fromOffset(110, 34)
+toggle.Position = UDim2.fromOffset(12, 64)
+toggle.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+toggle.BackgroundTransparency = 0.05
+toggle.TextSize = 14
+toggle.Font = Enum.Font.GothamSemibold
+toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggle.Parent = panel
+Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 12)
+local toggleStroke = Instance.new("UIStroke", toggle)
+toggleStroke.Thickness = 1
+toggleStroke.Transparency = 0.55
+
+local volLabel = Instance.new("TextLabel")
+volLabel.BackgroundTransparency = 1
+volLabel.Size = UDim2.new(1, -24, 0, 18)
+volLabel.Position = UDim2.fromOffset(12, 108)
+volLabel.TextXAlignment = Enum.TextXAlignment.Left
+volLabel.TextSize = 13
+volLabel.Font = Enum.Font.GothamSemibold
+volLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
+volLabel.Parent = panel
+
+local sliderBG = Instance.new("Frame")
+sliderBG.Size = UDim2.new(1, -24, 0, 10)
+sliderBG.Position = UDim2.fromOffset(12, 132)
+sliderBG.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sliderBG.BackgroundTransparency = 0.1
+sliderBG.Parent = panel
+Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(0, 999)
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(0, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+sliderFill.Parent = sliderBG
+Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0, 999)
+
+local knob = Instance.new("Frame")
+knob.Size = UDim2.fromOffset(18, 18)
+knob.Position = UDim2.new(0, -9, 0.5, -9)
+knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+knob.Parent = sliderBG
+Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 999)
+
+local function setToggleText()
+	toggle.Text = settings.enabled and "Enabled: ON" or "Enabled: OFF"
+end
+
+local function setVolumeUI(v, instant)
+	v = math.clamp(v, 0, 1)
+	settings.volume = v
+	volLabel.Text = ("Death Sound Volume: %d%%"):format(math.floor(v * 100 + 0.5))
+
+	if instant then
+		sliderFill.Size = UDim2.new(v, 0, 1, 0)
+		knob.Position = UDim2.new(v, -9, 0.5, -9)
+	else
+		TweenService:Create(sliderFill, TweenInfo.new(0.08), {Size = UDim2.new(v, 0, 1, 0)}):Play()
+		TweenService:Create(knob, TweenInfo.new(0.08), {Position = UDim2.new(v, -9, 0.5, -9)}):Play()
+	end
+end
+
+setToggleText()
+setVolumeUI(settings.volume, true)
+
+local function showPanel(on)
+	if on then
+		panel.Visible = true
+		panel.Position = UDim2.new(0, 10, 0.5, -85)
+		panel.BackgroundTransparency = 1
+		panelStroke.Transparency = 1
+		TweenService:Create(panel, TweenInfo.new(0.12), {
+			Position = UDim2.new(0, 20, 0.5, -85),
+			BackgroundTransparency = 0.1
+		}):Play()
+		TweenService:Create(panelStroke, TweenInfo.new(0.12), {Transparency = 0.45}):Play()
+	else
+		local t1 = TweenService:Create(panel, TweenInfo.new(0.10), {BackgroundTransparency = 1})
+		local t2 = TweenService:Create(panelStroke, TweenInfo.new(0.10), {Transparency = 1})
+		t1:Play(); t2:Play()
+		t1.Completed:Once(function() panel.Visible = false end)
+	end
+end
+
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == OPEN_KEY then
+		showPanel(not panel.Visible)
+	end
+end)
+
+toggle.MouseButton1Click:Connect(function()
+	settings.enabled = not settings.enabled
+	setToggleText()
+end)
+
+local function volumeFromX(x)
+	local absPos = sliderBG.AbsolutePosition.X
+	local absSize = sliderBG.AbsoluteSize.X
+	return math.clamp((x - absPos) / absSize, 0, 1)
+end
+
+sliderBG.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		setVolumeUI(volumeFromX(input.Position.X), false)
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if not dragging then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		setVolumeUI(volumeFromX(input.Position.X), false)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+local deathSoundTemplate = Instance.new("Sound")
+deathSoundTemplate.SoundId = DEATH_SOUND_ID
+deathSoundTemplate.RollOffMode = Enum.RollOffMode.InverseTapered
+deathSoundTemplate.Parent = SoundService
+
+local function playDeathSound()
+	if not settings.enabled then return end
+	local s = deathSoundTemplate:Clone()
+	s.Volume = settings.volume
+	s.Parent = SoundService
+	s:Play()
+	Debris:AddItem(s, 6)
+end
+
+local remote = ReplicatedStorage:WaitForChild(REMOTE_NAME, 10)
+if remote then
+	remote.OnClientEvent:Connect(function(cmd)
+		if cmd == "PLAY_SOUND" then
+			playDeathSound()
+		end
+	end)
+else
+	warn("DeathFX: RemoteEvent not found. Did you add the server script?")
+end
